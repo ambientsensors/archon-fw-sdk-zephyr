@@ -1397,6 +1397,7 @@ static const struct bt_mesh_model_op *find_op(const struct bt_mesh_elem *elem,
 	uint32_t cid = UINT32_MAX;
 	const struct bt_mesh_model *models;
 
+#if 0
 	/* SIG models cannot contain 3-byte (vendor) OpCodes, and
 	 * vendor models cannot contain SIG (1- or 2-byte) OpCodes, so
 	 * we only need to do the lookup in one of the model lists.
@@ -1411,25 +1412,40 @@ static const struct bt_mesh_model_op *find_op(const struct bt_mesh_elem *elem,
 		cid = (uint16_t)(opcode & 0xffff);
 	}
 
-	for (i = 0U; i < count; i++) {
+#endif
+    uint8_t loopcount = 2;
 
-		const struct bt_mesh_model_op *op;
+    // start with the vendor models
+    models = elem->vnd_models;
+    count = elem->vnd_model_count;
+    // SLC workaround - we want our vendor-specific model to be able to use
+    // non-vendor-specific opcodes (we are a control model)
+    while (loopcount > 0)
+    {
+        for (i = 0U; i < count; i++) {
 
-		if (IS_ENABLED(CONFIG_BT_MESH_MODEL_VND_MSG_CID_FORCE) &&
-		     cid != UINT32_MAX &&
-		     cid != models[i].vnd.company) {
-			continue;
-		}
+            const struct bt_mesh_model_op *op;
 
-		*model = &models[i];
+            if (IS_ENABLED(CONFIG_BT_MESH_MODEL_VND_MSG_CID_FORCE) &&
+                cid != UINT32_MAX &&
+                cid != models[i].vnd.company) {
+                continue;
+            }
 
-		for (op = (*model)->op; op->func; op++) {
-			if (op->opcode == opcode) {
-				return op;
-			}
-		}
-	}
+            *model = &models[i];
 
+            for (op = (*model)->op; op->func; op++) {
+                if (op->opcode == opcode) {
+                    return op;
+                }
+            }
+        }
+        // first time through was vendor models, 2nd time, std models
+        models = elem->models;
+        count = elem->model_count;
+        loopcount--;
+
+    }
 	*model = NULL;
 	return NULL;
 }
