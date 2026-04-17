@@ -486,9 +486,7 @@ static void tcan4x5x_int_thread(void *p1, void *p2, void *p3)
 					continue;
 				}
 
-#if !CRG_IGNORE_SPIERR
-				// LOG_ERR("SPIERR, status = 0x%08x", status);
-#endif
+				LOG_WRN("%s: SPIERR STATUS=0x%08X", dev->name, status);
 
 				err = tcan4x5x_write_tcan_reg(dev, CAN_TCAN4X5X_STATUS, status &
 							      CAN_TCAN4X5X_STATUS_CLEAR_ALL);
@@ -496,6 +494,34 @@ static void tcan4x5x_int_thread(void *p1, void *p2, void *p3)
 					LOG_ERR("failed to write status register (err %d)", err);
 					continue;
 				}
+			}
+
+			if ((ir & CAN_TCAN4X5X_IR_UVSUP) != 0U) {
+				LOG_ERR("%s: undervoltage on VCC (UVSUP)", dev->name);
+			}
+
+			if ((ir & CAN_TCAN4X5X_IR_UVIO) != 0U) {
+				LOG_ERR("%s: undervoltage on VIO (UVIO)", dev->name);
+			}
+
+			if ((ir & CAN_TCAN4X5X_IR_TSD) != 0U) {
+				LOG_ERR("%s: thermal shutdown (TSD)", dev->name);
+			}
+
+			if ((ir & CAN_TCAN4X5X_IR_WDTO) != 0U) {
+				LOG_ERR("%s: watchdog timeout (WDTO)", dev->name);
+			}
+
+			if ((ir & CAN_TCAN4X5X_IR_ECCERR) != 0U) {
+				LOG_ERR("%s: ECC error in message RAM (ECCERR)", dev->name);
+			}
+
+			if ((ir & CAN_TCAN4X5X_IR_CANSLNT) != 0U) {
+				LOG_WRN("%s: CAN bus silent - no activity detected (CANSLNT)", dev->name);
+			}
+
+			if ((ir & CAN_TCAN4X5X_IR_CANDOM) != 0U) {
+				LOG_ERR("%s: CAN bus stuck dominant (CANDOM)", dev->name);
 			}
 
 			if ((ir & CAN_TCAN4X5X_IR_M_CAN_INT) != 0U) {

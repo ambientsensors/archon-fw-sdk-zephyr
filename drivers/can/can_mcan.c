@@ -81,6 +81,7 @@ static int can_mcan_exit_sleep_mode(const struct device *dev)
 				goto unlock;
 			}
 
+			LOG_WRN("%s: exit_sleep_mode timeout (CCCR=0x%08X)", dev->name, cccr);
 			err = -EAGAIN;
 			goto unlock;
 		}
@@ -134,6 +135,7 @@ static int can_mcan_enter_init_mode(const struct device *dev, k_timeout_t timeou
 				goto unlock;
 			}
 
+			LOG_WRN("%s: enter_init_mode timeout (CCCR=0x%08X)", dev->name, cccr);
 			err = -EAGAIN;
 			goto unlock;
 		}
@@ -180,6 +182,7 @@ static int can_mcan_leave_init_mode(const struct device *dev, k_timeout_t timeou
 
 	while ((cccr & CAN_MCAN_CCCR_INIT) != 0U) {
 		if (k_uptime_ticks() - start_time > timeout.ticks) {
+			LOG_WRN("%s: leave_init_mode timeout (CCCR=0x%08X)", dev->name, cccr);
 			err = -EAGAIN;
 			goto unlock;
 		}
@@ -572,6 +575,9 @@ static void can_mcan_state_change_handler(const struct device *dev)
 		return;
 	}
 
+	LOG_WRN("%s: CAN state %d TEC=%u REC=%u", dev->name, state,
+		err_cnt.tx_err_cnt, err_cnt.rx_err_cnt);
+
 	if (state_cb != NULL) {
 		state_cb(dev, state, err_cnt, state_cb_data);
 	}
@@ -767,13 +773,18 @@ void can_mcan_line_0_isr(const struct device *dev)
 			LOG_ERR("Message RAM access failure");
 		}
 
-#ifdef CONFIG_CAN_STATS
 		if ((ir & (CAN_MCAN_IR_PEA | CAN_MCAN_IR_PED)) != 0U) {
-			uint32_t reg;
-			/* This function automatically updates protocol error stats */
-			can_mcan_read_psr(dev, &reg);
+			uint32_t psr;
+			uint32_t ecr;
+			/* can_mcan_read_psr also updates CAN_STATS LEC counters when enabled */
+			can_mcan_read_psr(dev, &psr);
+			can_mcan_read_reg(dev, CAN_MCAN_ECR, &ecr);
+			LOG_WRN("%s: protocol err PSR=0x%08X LEC=%u TEC=%u REC=%u",
+				dev->name, psr,
+				FIELD_GET(CAN_MCAN_PSR_LEC, psr),
+				FIELD_GET(CAN_MCAN_ECR_TEC, ecr),
+				FIELD_GET(CAN_MCAN_ECR_REC, ecr));
 		}
-#endif
 
 		err = can_mcan_read_reg(dev, CAN_MCAN_IR, &ir);
 		if (err != 0) {
@@ -1088,6 +1099,7 @@ int can_mcan_send(const struct device *dev, const struct can_frame *frame, k_tim
 
 	err = k_sem_take(&data->tx_sem, timeout);
 	if (err != 0) {
+		LOG_WRN("%s: TX sem timeout id=0x%03X", dev->name, frame->id);
 		return -EAGAIN;
 	}
 
