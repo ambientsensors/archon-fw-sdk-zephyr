@@ -18,9 +18,6 @@
 LOG_MODULE_REGISTER(can_tcan4x5x, CONFIG_CAN_LOG_LEVEL);
 
 #define DT_DRV_COMPAT ti_tcan4x5x
-#define CRG_POLL_FOR_INTERRUPTS 1
-#define CRG_TRACE_CAN_OPS 0
-#define CRG_IGNORE_SPIERR 1
 
 /*
  * The register definitions correspond to those found in the TI TCAN4550-Q1 datasheet, revision D
@@ -284,35 +281,18 @@ static int tcan4x5x_read(const struct device *dev, uint16_t addr, void *dst, siz
 	__ASSERT_NO_MSG(len % 4 == 0);
 	__ASSERT_NO_MSG(len32 <= 256);
 
-#if CRG_TRACE_CAN_OPS
-	if (addr != 0x0820)
-	{
-		LOG_INF("%s rd 0x%04X %d", dev->name, addr, len);
-		// printk("rd 0x%04X %d\n", addr, len);
-	}
-#endif /* if CRG_TRACE_CAN_OPS */
-
 	err = spi_transceive_dt(&tcan_config->spi, &tx, &rx);
 	if (err != 0) {
-		LOG_ERR("%s failed to read addr %u, len %d (err %d)", dev->name, addr, len, err);
+		LOG_ERR("failed to read addr %u, len %d (err %d)", addr, len, err);
 		return err;
 	}
 
-#if !CRG_IGNORE_SPIERR
 	__ASSERT_NO_MSG((global_status & CAN_TCAN4X5X_IR_SPIERR) == 0U);
-#endif
 
 	for (i = 0; i < len32; i++) {
 		dst32[i] = sys_be32_to_cpu(dst32[i]);
 	}
 
-#if CRG_TRACE_CAN_OPS
-	if ((addr != 0x0820) || (dst32[0] != 0))
-	{
-		LOG_INF("%s rd 0x%04X %d : 0x%08X", dev->name, addr, len, dst32[0]);
-		// printk("rd 0x%04X %d : 0x%08X\n", addr, len, dst32[0]);
-	}
-#endif /* if CRG_TRACE_CAN_OPS */
 	return 0;
 }
 
@@ -346,10 +326,6 @@ static int tcan4x5x_write(const struct device *dev, uint16_t addr, const void *s
 	if (len == 0) {
 		return 0;
 	}
-#if CRG_TRACE_CAN_OPS
-	LOG_INF("%s wr 0x%04X %d", dev->name, addr, len);
-	// printk("wr 0x%04X %d\n", addr, len);
-#endif /* if CRG_TRACE_CAN_OPS */
 
 	/* Maximum transfer size is 256 32-bit words */
 	__ASSERT_NO_MSG(len % 4 == 0);
@@ -361,17 +337,12 @@ static int tcan4x5x_write(const struct device *dev, uint16_t addr, const void *s
 
 	err = spi_transceive_dt(&tcan_config->spi, &tx, &rx);
 	if (err != 0) {
-		LOG_ERR("%s failed to write addr %u, len %d (err %d)", dev->name, addr, len, err);
+		LOG_ERR("failed to write addr %u, len %d (err %d)", addr, len, err);
 		return err;
 	}
 
-#if CRG_TRACE_CAN_OPS
-	LOG_INF("%s wr 0x%04X %d : 0x%08X", dev->name, addr, len, src32[0]);
-	// printk("wr 0x%04X %d : 0x%08X\n", addr, len, sys_be32_to_cpu(src32[0]));
-	#endif /* if CRG_TRACE_CAN_OPS */
-#if !CRG_IGNORE_SPIERR
 	__ASSERT_NO_MSG((global_status & CAN_TCAN4X5X_IR_SPIERR) == 0U);
-#endif
+
 	return 0;
 }
 
@@ -459,11 +430,7 @@ static void tcan4x5x_int_thread(void *p1, void *p2, void *p3)
 	int err;
 
 	while (true) {
-#if CRG_POLL_FOR_INTERRUPTS
-		k_sem_take(&tcan_data->int_sem, K_USEC(100));
-#else // else if not CRG_POLL_FOR_INTERRUPTS
 		k_sem_take(&tcan_data->int_sem, K_FOREVER);
-#endif // end else if not CRG_POLL_FOR_INTERRUPTS
 
 		err = tcan4x5x_read_tcan_reg(dev, CAN_TCAN4X5X_IR, &ir);
 		if (err != 0) {
@@ -486,7 +453,7 @@ static void tcan4x5x_int_thread(void *p1, void *p2, void *p3)
 					continue;
 				}
 
-				LOG_WRN("%s: SPIERR STATUS=0x%08X", dev->name, status);
+				LOG_ERR("SPIERR, status = 0x%08x", status);
 
 				err = tcan4x5x_write_tcan_reg(dev, CAN_TCAN4X5X_STATUS, status &
 							      CAN_TCAN4X5X_STATUS_CLEAR_ALL);
@@ -494,34 +461,6 @@ static void tcan4x5x_int_thread(void *p1, void *p2, void *p3)
 					LOG_ERR("failed to write status register (err %d)", err);
 					continue;
 				}
-			}
-
-			if ((ir & CAN_TCAN4X5X_IR_UVSUP) != 0U) {
-				LOG_ERR("%s: undervoltage on VCC (UVSUP)", dev->name);
-			}
-
-			if ((ir & CAN_TCAN4X5X_IR_UVIO) != 0U) {
-				LOG_ERR("%s: undervoltage on VIO (UVIO)", dev->name);
-			}
-
-			if ((ir & CAN_TCAN4X5X_IR_TSD) != 0U) {
-				LOG_ERR("%s: thermal shutdown (TSD)", dev->name);
-			}
-
-			if ((ir & CAN_TCAN4X5X_IR_WDTO) != 0U) {
-				LOG_ERR("%s: watchdog timeout (WDTO)", dev->name);
-			}
-
-			if ((ir & CAN_TCAN4X5X_IR_ECCERR) != 0U) {
-				LOG_ERR("%s: ECC error in message RAM (ECCERR)", dev->name);
-			}
-
-			if ((ir & CAN_TCAN4X5X_IR_CANSLNT) != 0U) {
-				LOG_WRN("%s: CAN bus silent - no activity detected (CANSLNT)", dev->name);
-			}
-
-			if ((ir & CAN_TCAN4X5X_IR_CANDOM) != 0U) {
-				LOG_ERR("%s: CAN bus stuck dominant (CANDOM)", dev->name);
 			}
 
 			if ((ir & CAN_TCAN4X5X_IR_M_CAN_INT) != 0U) {
@@ -719,7 +658,6 @@ static int tcan4x5x_init_normal_mode(const struct device *dev)
 		LOG_ERR("failed to initialize mcan (err %d)", err);
 		return err;
 	}
-    LOG_INF("EXIT tcan4x5x_init (via init_normal_mode)\n");
 
 	return err;
 }
@@ -837,10 +775,6 @@ static int tcan4x5x_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-#if CRG_POLL_FOR_INTERRUPTS
-	LOG_INF("Will poll for CAN interrupts");
-	(void)tcan4x5x_int_gpio_callback_handler; // Callback won't be used
-#else // else if not CRG_POLL_FOR_INTERRUPTS
 	err = gpio_pin_configure_dt(&tcan_config->int_gpio, GPIO_INPUT);
 	if (err != 0) {
 		LOG_ERR("failed to configure nINT GPIO (err %d)", err);
@@ -862,7 +796,6 @@ static int tcan4x5x_init(const struct device *dev)
 		LOG_ERR("failed to configure nINT GPIO interrupt (err %d)", err);
 		return -ENODEV;
 	}
-	#endif // end else if not CRG_POLL_FOR_INTERRUPTS
 
 	tid = k_thread_create(&tcan_data->int_thread, tcan_data->int_stack,
 			      K_KERNEL_STACK_SIZEOF(tcan_data->int_stack),
